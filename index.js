@@ -7,10 +7,11 @@ app.use(bodyParser.json());
 
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 
-// 🔹 ترجمة النص للغة العربية
+// ✅ دالة للترجمة باستخدام Google Translate API (Cloud Translate V2)
 async function translateToArabic(text) {
+  if (!text) return "";
   try {
-    const res = await fetch("https://libretranslate.de/translate", {
+    const res = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${process.env.GOOGLE_API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -21,13 +22,32 @@ async function translateToArabic(text) {
       })
     });
     const data = await res.json();
-    return data.translatedText || text;
-  } catch (e) {
+    return data.data.translations[0].translatedText;
+  } catch (err) {
+    console.error("ترجمة فشلت:", err);
     return text;
   }
 }
 
-// 🔹 جلب بيانات أنمي
+// ✅ خريطة المواسم بالعربية
+const seasonMap = {
+  "spring": "ربيع",
+  "summer": "صيف",
+  "fall": "خريف",
+  "winter": "شتاء"
+};
+
+// ✅ خريطة التصنيفات العمرية
+const ratingMap = {
+  "PG-13 - Teens 13 or older": "+13",
+  "R - 17+ (violence & profanity)": "+17",
+  "R+ - Mild Nudity": "+17",
+  "G - All Ages": "+3",
+  "PG - Children": "+7",
+  "Rx - Hentai": "+18"
+};
+
+// ✅ جلب بيانات أنمي
 async function getAnimeData(name) {
   const url = `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(name)}&limit=1`;
   const res = await fetch(url);
@@ -37,28 +57,32 @@ async function getAnimeData(name) {
   const anime = data.data[0];
 
   const synopsisAr = await translateToArabic(anime.synopsis || "");
+  const season = seasonMap[anime.season] || "";
+  const rating = ratingMap[anime.rating] || anime.rating || "";
+  const source = anime.source?.toLowerCase() === "manga" ? "مانجا" :
+                 anime.source?.toLowerCase() === "web novel" ? "رواية ويب" : anime.source || "";
 
   return {
-    name: anime.title || "",
-    name2: anime.title_japanese || "",
-    image: anime.images?.jpg?.large_image_url || "",
-    "مصدر": anime.source || "",
+    "name": anime.title || "",
+    "name2": anime.title_japanese || "",
+    "image": anime.images?.jpg?.large_image_url || "",
+    "مصدر": source,
     "c": anime.aired?.string || "",
     "g": anime.genres.map(g => g.name).join(" / "),
     "مدة": anime.duration || "",
-    "h": `${anime.status === "Finished Airing" ? "مكتمل" : "مستمر"} . ${(anime.season || "")} ${(anime.year || "")} . ${(anime.rating || "")}`,
+    "h": `${anime.status === "Finished Airing" ? "مكتمل" : "مستمر"} . ${season} ${anime.year || ""} . ${rating}`,
     "ep": anime.episodes || "",
     "url": anime.url || "",
     "sto": synopsisAr,
     "عدد_حلقات": anime.episodes ? `${anime.episodes} حلقة` : "",
     "s": anime.studios?.[0]?.name || "",
-    "t": anime.score || "",
-    "id": anime.mal_id || "",
+    "t": String(anime.score || ""),
+    "id": String(anime.mal_id || ""),
     "fg": anime.type === "Movie" ? "فيلم" : "مسلسل"
   };
 }
 
-// 🔹 إرسال رسالة ماسنجر
+// ✅ إرسال رسالة في ماسنجر
 async function sendMessage(senderId, message) {
   await fetch(`https://graph.facebook.com/v17.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
     method: "POST",
@@ -70,10 +94,9 @@ async function sendMessage(senderId, message) {
   });
 }
 
-// 📩 Webhook لاستقبال الرسائل
+// 📩 استقبال الرسائل من فيسبوك
 app.post("/webhook", async (req, res) => {
   const body = req.body;
-
   if (body.object === "page") {
     for (const entry of body.entry) {
       const webhook_event = entry.messaging[0];
@@ -84,7 +107,7 @@ app.post("/webhook", async (req, res) => {
         const anime = await getAnimeData(query);
 
         if (anime) {
-          // أرسل الصورة
+          // أرسل صورة الغلاف
           await sendMessage(senderId, {
             attachment: {
               type: "image",
@@ -92,12 +115,12 @@ app.post("/webhook", async (req, res) => {
             }
           });
 
-          // أرسل JSON
+          // أرسل JSON بالعربية
           await sendMessage(senderId, {
             text: "📌 بيانات الأنمي:\n```json\n" + JSON.stringify(anime, null, 2) + "\n```"
           });
         } else {
-          await sendMessage(senderId, { text: "لم أجد هذا الأنمي 😢" });
+          await sendMessage(senderId, { text: "⚠️ لم أجد هذا الأنمي." });
         }
       }
     }
@@ -107,7 +130,7 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// للتحقق من Webhook
+// ✅ التحقق من Webhook
 app.get("/webhook", (req, res) => {
   const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
   const mode = req.query["hub.mode"];
@@ -123,5 +146,5 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-app.listen(3000, () => console.log("Server running"));
+app.listen(3000, () => console.log("✅ Server running on port 3000"));
 export default app;
